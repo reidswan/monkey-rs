@@ -1,6 +1,8 @@
+pub mod tokens;
+
 use std::{fmt::Write, iter::Peekable, str::Chars};
 
-use crate::tokens::{self, Token, TokenType};
+use tokens::{Token, TokenType};
 
 pub struct Lexer<'a> {
     iter: Peekable<Chars<'a>>,
@@ -216,8 +218,8 @@ impl<'a> Iterator for Lexer<'a> {
 
 #[cfg(test)]
 mod tests {
+    use super::tokens::{Token, TokenType::*};
     use super::Lexer;
-    use crate::tokens::{Token, TokenType::*};
 
     #[test]
     fn test_next_token() {
@@ -323,7 +325,7 @@ mod tests {
             Token::new(GreaterEqual, ">=", 17, 26),
             Token::new(Int, "50", 17, 29),
             Token::new(SemiColon, ";", 17, 31),
-            //
+            // the comments
             Token::new(EOF, "", 19, 38),
         ];
 

@@ -42,7 +42,7 @@ pub enum TokenType {
     Return,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct TokenLoc {
     pub line: usize,
     pub col: usize,

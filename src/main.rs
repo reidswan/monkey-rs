@@ -1,6 +1,6 @@
 mod lexer;
+mod parser;
 mod repl;
-mod tokens;
 
 fn main() {
     let stdin_raw = std::io::stdin();
