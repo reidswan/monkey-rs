@@ -43,29 +43,39 @@ pub enum TokenType {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub struct TokenLoc {
+    pub line: usize,
+    pub col: usize,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub struct Token {
     pub typ: TokenType,
     pub literal: String,
+    pub loc: TokenLoc,
 }
 
 impl Token {
-    pub fn new(typ: TokenType, lit: &str) -> Self {
+    pub fn new(typ: TokenType, lit: &str, line: usize, col: usize) -> Self {
         Self {
             typ,
             literal: lit.into(),
+            loc: TokenLoc { line, col },
         }
     }
 
-    pub fn from_keyword(s: &str) -> Option<Self> {
-        match s {
-            "let" => Some(Token::new(TokenType::Let, s)),
-            "fn" => Some(Token::new(TokenType::Function, s)),
-            "if" => Some(Token::new(TokenType::If, s)),
-            "else" => Some(Token::new(TokenType::Else, s)),
-            "return" => Some(Token::new(TokenType::Return, s)),
-            "true" => Some(Token::new(TokenType::True, s)),
-            "false" => Some(Token::new(TokenType::False, s)),
-            _ => None,
-        }
+    pub fn from_keyword(s: &str, line: usize, col: usize) -> Option<Self> {
+        let typ = match s {
+            "let" => TokenType::Let,
+            "fn" => TokenType::Function,
+            "if" => TokenType::If,
+            "else" => TokenType::Else,
+            "return" => TokenType::Return,
+            "true" => TokenType::True,
+            "false" => TokenType::False,
+            _ => return None,
+        };
+
+        Some(Token::new(typ, s, line, col))
     }
 }

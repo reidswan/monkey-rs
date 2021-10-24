@@ -6,6 +6,8 @@ pub struct Lexer<'a> {
     iter: Peekable<Chars<'a>>,
     curr: char,
     complete: bool,
+    line: usize,
+    col: usize,
 }
 
 impl<'a> Lexer<'a> {
@@ -14,6 +16,8 @@ impl<'a> Lexer<'a> {
             iter: src.chars().peekable(),
             curr: '\0',
             complete: false,
+            line: 1,
+            col: 0,
         };
 
         l.read_char();
@@ -27,6 +31,12 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    fn skip_to_next_line(&mut self) {
+        while self.curr != '\n' && self.curr != '\0' {
+            self.read_char()
+        }
+    }
+
     fn next_token(&mut self) -> tokens::Token {
         use tokens::TokenType::*;
 
@@ -34,7 +44,7 @@ impl<'a> Lexer<'a> {
 
         if self.curr == '\0' {
             self.complete = true;
-            return Token::new(EOF, "");
+            return self.new_token(EOF, "");
         }
 
         let mut literal: String = self.curr.into();
@@ -76,11 +86,19 @@ impl<'a> Lexer<'a> {
                     Less
                 }
             }
+            '/' => {
+                if self.peek_char() == '/' {
+                    // line comment
+                    self.skip_to_next_line();
+                    return self.next_token();
+                } else {
+                    Divide
+                }
+            }
             ',' => Comma,
             ';' => SemiColon,
             '+' => Plus,
             '-' => Subtract,
-            '/' => Divide,
             '*' => Multiply,
             '{' => LBrace,
             '}' => RBrace,
@@ -90,7 +108,7 @@ impl<'a> Lexer<'a> {
             _ => return self.read_identifier(),
         };
 
-        let tok = tokens::Token { typ, literal };
+        let tok = self.new_token(typ, &literal);
 
         self.read_char();
 
@@ -104,10 +122,7 @@ impl<'a> Lexer<'a> {
         while self.curr.is_ascii_digit() || self.curr == '.' {
             if self.curr == '.' {
                 if has_point {
-                    return tokens::Token {
-                        typ: TokenType::Illegal,
-                        literal: literal + ".",
-                    };
+                    return self.new_token(TokenType::Illegal, &(literal + "."));
                 }
 
                 has_point = true
@@ -121,17 +136,19 @@ impl<'a> Lexer<'a> {
         }
 
         if literal.is_empty() {
-            tokens::Token {
-                typ: TokenType::Illegal,
-                literal: self.curr.into(),
-            }
+            self.new_token(TokenType::Illegal, &self.curr.to_string())
         } else {
             let typ = if has_point {
                 TokenType::Float
             } else {
                 TokenType::Int
             };
-            tokens::Token { typ, literal }
+            let mut t = self.new_token(typ, &literal);
+
+            // subtract 1 from loc for the non-numeric character that terminated the number
+            t.loc.col -= 1;
+
+            t
         }
     }
 
@@ -146,29 +163,38 @@ impl<'a> Lexer<'a> {
         }
 
         if literal.is_empty() {
-            return tokens::Token {
-                typ: TokenType::Illegal,
-                literal: self.curr.into(),
-            };
+            return self.new_token(TokenType::Illegal, &self.curr.to_string());
         }
 
         // check if literal is a keyword
-        if let Some(t) = Token::from_keyword(&literal) {
-            t
-        } else {
-            tokens::Token {
-                typ: TokenType::Identifier,
-                literal,
-            }
-        }
+        let mut tok =
+            if let Some(t) = Token::from_keyword(&literal, self.line, self.col - literal.len()) {
+                t
+            } else {
+                self.new_token(TokenType::Identifier, &literal)
+            };
+
+        // subtract 1 from loc for the non-identifier character that terminated the identifier
+        tok.loc.col -= 1;
+        tok
     }
 
     fn read_char(&mut self) {
-        self.curr = self.iter.next().unwrap_or('\0')
+        self.curr = self.iter.next().unwrap_or('\0');
+        if self.curr == '\n' {
+            self.col = 0;
+            self.line += 1;
+        } else {
+            self.col += 1;
+        }
     }
 
     fn peek_char(&mut self) -> char {
         *self.iter.peek().unwrap_or(&'\0')
+    }
+
+    fn new_token(&self, typ: tokens::TokenType, literal: &str) -> tokens::Token {
+        tokens::Token::new(typ, literal, self.line, self.col - literal.len())
     }
 }
 
@@ -212,96 +238,99 @@ mod tests {
         }
         
         5 < 10 > -5 <= 10 >= 50;
-        ";
+        // this is a comment!
+        // this should all be ignored";
 
         let mut l = Lexer::new(input);
 
         let expected = vec![
             // let five = 5;
-            Token::new(Let, "let"),
-            Token::new(Identifier, "five"),
-            Token::new(Assign, "="),
-            Token::new(Int, "5"),
-            Token::new(SemiColon, ";"),
-            // let ten = 10;
-            Token::new(Let, "let"),
-            Token::new(Identifier, "tenish"),
-            Token::new(Assign, "="),
-            Token::new(Int, "2"),
-            Token::new(Multiply, "*"),
-            Token::new(Float, "10.0"),
-            Token::new(Divide, "/"),
-            Token::new(Int, "2"),
-            Token::new(SemiColon, ";"),
-            // let add = fn(x, y) { x + y; };
-            Token::new(Let, "let"),
-            Token::new(Identifier, "add"),
-            Token::new(Assign, "="),
-            Token::new(Function, "fn"),
-            Token::new(LParen, "("),
-            Token::new(Identifier, "x"),
-            Token::new(Comma, ","),
-            Token::new(Identifier, "y"),
-            Token::new(RParen, ")"),
-            Token::new(LBrace, "{"),
-            Token::new(Identifier, "x"),
-            Token::new(Plus, "+"),
-            Token::new(Identifier, "y"),
-            Token::new(SemiColon, ";"),
-            Token::new(RBrace, "}"),
-            Token::new(SemiColon, ";"),
+            Token::new(Let, "let", 1, 0),
+            Token::new(Identifier, "five", 1, 4),
+            Token::new(Assign, "=", 1, 9),
+            Token::new(Int, "5", 1, 11),
+            Token::new(SemiColon, ";", 1, 12),
+            // let tenish = 2*10.0/2;
+            Token::new(Let, "let", 3, 8),
+            Token::new(Identifier, "tenish", 3, 12),
+            Token::new(Assign, "=", 3, 19),
+            Token::new(Int, "2", 3, 21),
+            Token::new(Multiply, "*", 3, 22),
+            Token::new(Float, "10.0", 3, 23),
+            Token::new(Divide, "/", 3, 27),
+            Token::new(Int, "2", 3, 28),
+            Token::new(SemiColon, ";", 3, 29),
+            // // let add = fn(x, y) { x + y; };
+            Token::new(Let, "let", 5, 8),
+            Token::new(Identifier, "add", 5, 12),
+            Token::new(Assign, "=", 5, 16),
+            Token::new(Function, "fn", 5, 18),
+            Token::new(LParen, "(", 5, 20),
+            Token::new(Identifier, "x", 5, 21),
+            Token::new(Comma, ",", 5, 22),
+            Token::new(Identifier, "y", 5, 24),
+            Token::new(RParen, ")", 5, 25),
+            Token::new(LBrace, "{", 5, 27),
+            Token::new(Identifier, "x", 6, 12),
+            Token::new(Plus, "+", 6, 14),
+            Token::new(Identifier, "y", 6, 16),
+            Token::new(SemiColon, ";", 6, 17),
+            Token::new(RBrace, "}", 7, 8),
+            Token::new(SemiColon, ";", 7, 9),
             // let result = add(five, ten);
-            Token::new(Let, "let"),
-            Token::new(Identifier, "result"),
-            Token::new(Assign, "="),
-            Token::new(Identifier, "add"),
-            Token::new(LParen, "("),
-            Token::new(Identifier, "five"),
-            Token::new(Comma, ","),
-            Token::new(Identifier, "tenish"),
-            Token::new(RParen, ")"),
-            Token::new(SemiColon, ";"),
-            // if((!true == false) != true){ return false; } else { return true; }
-            Token::new(If, "if"),
-            Token::new(LParen, "("),
-            Token::new(LParen, "("),
-            Token::new(Not, "!"),
-            Token::new(True, "true"),
-            Token::new(EqualEqual, "=="),
-            Token::new(False, "false"),
-            Token::new(RParen, ")"),
-            Token::new(NotEqual, "!="),
-            Token::new(True, "true"),
-            Token::new(RParen, ")"),
-            Token::new(LBrace, "{"),
-            Token::new(Return, "return"),
-            Token::new(False, "false"),
-            Token::new(SemiColon, ";"),
-            Token::new(RBrace, "}"),
-            Token::new(Else, "else"),
-            Token::new(LBrace, "{"),
-            Token::new(Return, "return"),
-            Token::new(True, "true"),
-            Token::new(SemiColon, ";"),
-            Token::new(RBrace, "}"),
-            // 5 < 10 > -5 <= 10 >= 50;
-            Token::new(Int, "5"),
-            Token::new(Less, "<"),
-            Token::new(Int, "10"),
-            Token::new(Greater, ">"),
-            Token::new(Subtract, "-"),
-            Token::new(Int, "5"),
-            Token::new(LessEqual, "<="),
-            Token::new(Int, "10"),
-            Token::new(GreaterEqual, ">="),
-            Token::new(Int, "50"),
-            Token::new(SemiColon, ";"),
-            // done
-            Token::new(EOF, ""),
+            Token::new(Let, "let", 9, 8),
+            Token::new(Identifier, "result", 9, 12),
+            Token::new(Assign, "=", 9, 19),
+            Token::new(Identifier, "add", 9, 21),
+            Token::new(LParen, "(", 9, 24),
+            Token::new(Identifier, "five", 9, 25),
+            Token::new(Comma, ",", 9, 29),
+            Token::new(Identifier, "tenish", 9, 31),
+            Token::new(RParen, ")", 9, 37),
+            Token::new(SemiColon, ";", 9, 38),
+            // // if((!true == false) != true){ return false; } else { return true; }
+            Token::new(If, "if", 11, 8),
+            Token::new(LParen, "(", 11, 10),
+            Token::new(LParen, "(", 11, 11),
+            Token::new(Not, "!", 11, 12),
+            Token::new(True, "true", 11, 13),
+            Token::new(EqualEqual, "==", 11, 18),
+            Token::new(False, "false", 11, 21),
+            Token::new(RParen, ")", 11, 26),
+            Token::new(NotEqual, "!=", 11, 28),
+            Token::new(True, "true", 11, 31),
+            Token::new(RParen, ")", 11, 35),
+            Token::new(LBrace, "{", 11, 37),
+            Token::new(Return, "return", 12, 12),
+            Token::new(False, "false", 12, 19),
+            Token::new(SemiColon, ";", 12, 24),
+            Token::new(RBrace, "}", 13, 8),
+            Token::new(Else, "else", 13, 10),
+            Token::new(LBrace, "{", 13, 15),
+            Token::new(Return, "return", 14, 12),
+            Token::new(True, "true", 14, 19),
+            Token::new(SemiColon, ";", 14, 23),
+            Token::new(RBrace, "}", 15, 8),
+            // // 5 < 10 > -5 <= 10 >= 50;
+            Token::new(Int, "5", 17, 8),
+            Token::new(Less, "<", 17, 10),
+            Token::new(Int, "10", 17, 12),
+            Token::new(Greater, ">", 17, 15),
+            Token::new(Subtract, "-", 17, 17),
+            Token::new(Int, "5", 17, 18),
+            Token::new(LessEqual, "<=", 17, 20),
+            Token::new(Int, "10", 17, 23),
+            Token::new(GreaterEqual, ">=", 17, 26),
+            Token::new(Int, "50", 17, 29),
+            Token::new(SemiColon, ";", 17, 31),
+            //
+            Token::new(EOF, "", 19, 38),
         ];
 
         for i in expected.into_iter() {
             assert_eq!(i, l.next_token())
         }
+
+        assert!(l.complete, "expected no more tokens")
     }
 }
